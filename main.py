@@ -9,20 +9,34 @@ import time
 # CONFIGURAÇÕES DA SUA ENDER 3 V3 KE
 MESA_X, MESA_Y = 220, 220 
 
-st.set_page_config(page_title="431 3D for Dummies", page_icon="🧩")
+st.set_page_config(page_title="431 3D for Dummies", page_icon="🧩", layout="centered")
+
 st.title("🧩 431 3D for Dummies")
 
 # 1. CARREGAMENTO DO ARQUIVO
 arquivo = st.file_uploader("1. Arraste seu STL aqui", type=['stl'])
 
+# Criamos um espaço reservado no CENTRO para mensagens de trabalho
+area_de_trabalho = st.empty()
+
 if arquivo:
-    with st.status("📥 Carregando e analisando modelo...", expanded=True) as status:
-        conteudo = io.BytesIO(arquivo.read())
-        mesh = trimesh.load(conteudo, file_type='stl')
-        d_orig = mesh.extents
-        time.sleep(1) # Feedback visual para o usuário
-        status.update(label="✅ Modelo carregado!", state="complete", expanded=False)
+    if 'confirmado' not in st.session_state:
+        st.session_state.confirmado = False
+
+    # Mensagem Central de Análise Inicial
+    if 'analisado' not in st.session_state:
+        with area_de_trabalho.container():
+            st.info("⌛ **TRABALHANDO NO CENTRO:** Analisando geometria do modelo...")
+            conteudo = io.BytesIO(arquivo.read())
+            mesh = trimesh.load(conteudo, file_type='stl')
+            st.session_state.mesh = mesh
+            st.session_state.d_orig = mesh.extents
+            st.session_state.analisado = True
+            time.sleep(1)
+            area_de_trabalho.empty() # Limpa o centro após terminar
     
+    d_orig = st.session_state.d_orig
+
     st.subheader("📏 Tamanho Atual Detectado")
     c1, c2, c3 = st.columns(3)
     c1.metric("Largura (X)", f"{d_orig[0]:.1f} mm", f"{d_orig[0]/10:.1f} cm")
@@ -35,78 +49,39 @@ if arquivo:
     st.subheader("🎯 2. Defina o novo tamanho")
     maior_lado_atual = float(max(d_orig))
     
-    dim_alvo = st.number_input(
-        "Digite o tamanho desejado para o MAIOR LADO (em mm):", 
-        min_value=1.0, 
-        value=maior_lado_atual,
-        step=10.0
-    )
+    dim_alvo = st.number_input("Tamanho do MAIOR LADO desejado (mm):", value=maior_lado_atual)
 
-    # FEEDBACK DE RECALCULO
-    with st.spinner("🔄 Recalculando proporções..."):
+    if st.button("✅ Confirmar Medidas"):
+        with area_de_trabalho.container():
+            st.warning("🔄 **TRABALHANDO NO CENTRO:** Aplicando novas dimensões...")
+            time.sleep(1)
+            st.session_state.confirmado = True
+            area_de_trabalho.empty()
+
+    if st.session_state.confirmado:
         fator_escala = dim_alvo / maior_lado_atual
         d_novo = d_orig * fator_escala
-        time.sleep(0.5)
+        st.info(f"💡 Novo tamanho: **{d_novo[0]/10:.1f} cm x {d_novo[1]/10:.1f} cm x {d_novo[2]/10:.1f} cm**")
 
-    st.info(f"💡 O novo tamanho será: **{d_novo[0]/10:.1f} cm x {d_novo[1]/10:.1f} cm x {d_novo[2]/10:.1f} cm**")
+        # 3. DIVISÃO
+        partes_escolhidas = 1
+        if d_novo[0] > MESA_X or d_novo[1] > MESA_Y:
+            st.warning("⚠️ Peça excede a mesa da Ender 3 V3 KE.")
+            partes_escolhidas = st.select_slider("Dividir em:", options=[2, 4, 6, 8], value=4)
 
-    # 3. PERGUNTA DE DIVISÃO (SÓ APARECE SE FOR MAIOR QUE A MESA)
-    partes_escolhidas = 1
-    if d_novo[0] > MESA_X or d_novo[1] > MESA_Y:
-        st.warning(f"⚠️ A peça de {dim_alvo/10:.1f}cm não cabe na mesa de {MESA_X/10:.1f}cm.")
-        partes_escolhidas = st.select_slider(
-            "Em quantas partes você deseja que a ferramenta corte o modelo?",
-            options=[2, 4, 6, 8],
-            value=4,
-            help="Cortes automáticos com pinos de encaixe precisos."
-        )
-        st.write(f"⚙️ O modelo será fatiado em **{partes_escolhidas} partes**.")
-    else:
-        st.success("✅ Tudo certo! A peça cabe inteira na mesa.")
-
-    # 4. GERAÇÃO DO G-CODE
-    st.write("---")
-    if st.button("🚀 3. GERAR G-CODE PARA O PENDRIVE"):
-        # TELA DE CARREGAMENTO PESADA
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            status_text.text("⚙️ Aplicando escala e gerando suportes orgânicos...")
-            progress_bar.progress(30)
-            
-            mesh.apply_scale(fator_escala)
-            temp_stl = "final.stl"
-            mesh.export(temp_stl)
-            
-            status_text.text("🤖 O motor Slic3r está gerando o G-Code (PLA 200/60)...")
-            progress_bar.progress(60)
-            
-            output_gcode = "print_431.gcode"
-            subprocess.run([
-                "slic3r", temp_stl,
-                "--temperature", "200",
-                "--bed-temperature", "60",
-                "--output", output_gcode
-            ], check=True)
-            
-            progress_bar.progress(90)
-            status_text.text("📦 Criando pacote ZIP final...")
-            
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w") as zf:
-                if os.path.exists(output_gcode):
-                    zf.write(output_gcode)
-                zf.writestr("Instruções_Montagem.txt", f"Peças: {partes_escolhidas}\nFolga dos pinos: 0.25mm")
-            
-            progress_bar.progress(100)
-            status_text.text("✅ Concluído!")
-            st.balloons()
-            st.download_button("📥 BAIXAR PACOTE COMPLETO", buf.getvalue(), "431_Pronto.zip")
-            
-        except Exception as e:
-            st.error("Erro no processamento. Tente novamente.")
-            status_text.empty()
-            progress_bar.empty()
-else:
-    st.info("Aguardando o arquivo STL para começar.")
+        # 4. GERAÇÃO DO G-CODE (CARREGAMENTO CENTRALIZADO)
+        if st.button("🚀 3. GERAR G-CODE REAL"):
+            with area_de_trabalho.container():
+                st.markdown("---")
+                st.header("🤖 **PROCESSANDO G-CODE**")
+                barra = st.progress(0)
+                msg = st.empty()
+                
+                try:
+                    msg.write("📐 Ajustando escala para 200°C/60°C...")
+                    barra.progress(30)
+                    
+                    mesh_final = st.session_state.mesh.copy()
+                    mesh_final.apply_scale(fator_escala)
+                    temp_stl = "final.stl"
+                    mesh_final.export(temp
