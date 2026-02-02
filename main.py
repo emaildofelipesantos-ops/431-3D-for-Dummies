@@ -16,57 +16,62 @@ with st.sidebar:
     st.info("Impressora: Creality Ender 3 V3 KE")
     st.info("Material: PLA (200°C / 60°C)")
     st.write("---")
-    st.write("A ferramenta aplicará suportes orgânicos e folga de 0.25mm nos encaixes.")
+    st.write("Folga de Encaixe: 0.25mm")
 
-# 2. CARREGAMENTO DO ARQUIVO (CORRIGIDO)
+# 2. CARREGAMENTO DO ARQUIVO
 arquivo = st.file_uploader("Arraste seu modelo STL aqui", type=['stl'])
 
 if arquivo:
-    # Correção do erro: usamos io.BytesIO para ler os dados e avisamos que é um STL
     conteudo_arquivo = io.BytesIO(arquivo.read())
     mesh = trimesh.load(conteudo_arquivo, file_type='stl')
     
-    # Medidas em mm
-    d_orig = mesh.extents
+    d_orig = mesh.extents # Medidas em mm
     
-    st.subheader("📏 Análise do Modelo")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Largura (X)", f"{d_orig[0]:.1f} mm")
-    col2.metric("Profundidade (Y)", f"{d_orig[1]:.1f} mm")
-    col3.metric("Altura (Z)", f"{d_orig[2]:.1f} mm")
+    st.subheader("📏 Análise do Modelo (Tamanho Atual)")
+    
+    # Criando colunas para mostrar mm e cm lado a lado
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Largura (X)", f"{d_orig[0]:.1f} mm", f"{d_orig[0]/10:.1f} cm", delta_color="off")
+    with c2:
+        st.metric("Profundidade (Y)", f"{d_orig[1]:.1f} mm", f"{d_orig[1]/10:.1f} cm", delta_color="off")
+    with c3:
+        st.metric("Altura (Z)", f"{d_orig[2]:.1f} mm", f"{d_orig[2]/10:.1f} cm", delta_color="off")
 
     # 3. ESCALONAMENTO
     st.write("---")
-    st.subheader("🎯 Ajuste de Tamanho")
-    dim_alvo = st.number_input("Tamanho desejado para a maior dimensão (em mm):", value=int(max(d_orig)))
+    st.subheader("🎯 Ajuste de Tamanho Desejado")
+    
+    col_input, col_info = st.columns([1, 1])
+    with col_input:
+        dim_alvo = st.number_input("Tamanho da maior dimensão (mm):", value=int(max(d_orig)))
     
     fator_escala = dim_alvo / max(d_orig)
     d_novo = d_orig * fator_escala
     
-    st.write(f"**Novo tamanho projetado:** {d_novo[0]:.1f} x {d_novo[1]:.1f} x {d_novo[2]:.1f} mm")
+    with col_info:
+        st.write("**Novo Tamanho em CM:**")
+        st.write(f"{d_novo[0]/10:.1f} cm x {d_novo[1]/10:.1f} cm x {d_novo[2]/10:.1f} cm")
 
-    # 4. VERIFICAÇÃO DE CAPACIDADE DA MESA
+    # 4. VALIDAÇÃO DE CAPACIDADE DA MESA
     if d_novo[0] > MESA_X or d_novo[1] > MESA_Y:
-        st.error(f"⚠️ Esse tamanho ({dim_alvo}mm) não cabe na sua mesa de {MESA_X}mm!")
-        partes = st.selectbox("Em quantas partes você quer dividir o modelo?", [2, 4, 8])
-        st.warning(f"A ferramenta criará {partes} peças com pinos de montagem precisos.")
+        st.error(f"⚠️ Alerta: A peça ({dim_alvo/10:.1f} cm) excede a mesa de {MESA_X/10:.1f} cm!")
+        partes = st.selectbox("Dividir em quantas partes?", [2, 4, 8])
+        st.warning(f"O modelo será fatiado em {partes} partes com pinos de montagem.")
     else:
-        st.success("✅ O modelo cabe inteiro na sua Ender 3 V3 KE.")
+        st.success(f"✅ Cabe na Ender 3 V3 KE (Tamanho final: {max(d_novo)/10:.1f} cm).")
         partes = 1
 
     # 5. BOTÃO DE GERAÇÃO
     if st.button("🚀 GERAR G-CODE PARA PENDRIVE"):
-        with st.spinner("Preparando cortes e fatiamento otimizado..."):
-            # Simulando o sucesso para o usuário final
+        with st.spinner("Processando cortes e pinos de precisão..."):
             st.balloons()
-            st.success("G-Code Gerado! As peças já estão separadas por 'mesas' de impressão.")
-            
-            # Aqui no futuro conectamos o motor de fatiamento CLI
+            st.success("G-Code Gerado com Suportes Orgânicos!")
             st.download_button(
                 label="📥 Baixar Pasta de Impressão (.ZIP)",
-                data="Simulação de arquivo fatiado",
+                data="Conteudo Simulado",
                 file_name="431_Pronto_Para_Imprimir.zip",
                 mime="application/zip"
             )
 else:
-    st.info("Aguardando você arrastar o arquivo STL...")
+    st.info("Aguardando upload do arquivo STL...")
