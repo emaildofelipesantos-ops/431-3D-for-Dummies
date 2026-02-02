@@ -5,34 +5,31 @@ import zipfile
 import subprocess
 import os
 import time
-import streamlit.components.v1 as components
 
-# 1. BANCO DE DADOS HIERÁRQUICO (Foco em X, Y, Z da mesa)
+# 1. BANCO DE DADOS COMPLETO
 DATABASE = {
     "Creality": {
         "Ender 3 V3 KE": {"x": 220, "y": 220, "z": 240},
         "Ender 3 (V2/Neo/S1/Pro)": {"x": 220, "y": 220, "z": 250},
         "K1 / K1C": {"x": 220, "y": 220, "z": 250},
         "K1 Max": {"x": 300, "y": 300, "z": 300},
-        "CR-M4": {"x": 450, "y": 450, "z": 470},
-        "Personalizado (Digitar Medidas)": {"x": 0, "y": 0, "z": 0}
+        "Personalizado": {"x": 0, "y": 0, "z": 0}
     },
     "Bambu Lab": {
         "A1 Mini": {"x": 180, "y": 180, "z": 180},
-        "A1/P1/X1 Series": {"x": 256, "y": 256, "z": 256},
-        "Personalizado (Digitar Medidas)": {"x": 0, "y": 0, "z": 0}
+        "Série P1 / X1": {"x": 256, "y": 256, "z": 256},
+        "Personalizado": {"x": 0, "y": 0, "z": 0}
     },
     "Prusa": {
-        "Mini+": {"x": 180, "y": 180, "z": 180},
-        "MK3/MK4": {"x": 250, "y": 210, "z": 210},
+        "MK3 / MK4": {"x": 250, "y": 210, "z": 210},
         "XL": {"x": 360, "y": 360, "z": 360},
-        "Personalizado (Digitar Medidas)": {"x": 0, "y": 0, "z": 0}
+        "Personalizado": {"x": 0, "y": 0, "z": 0}
     }
 }
 
 st.set_page_config(page_title="431 3D for Dummies", page_icon="🧩", layout="centered")
 
-# CSS PARA POP-UP DE LOADING CENTRAL E ESTILO
+# Estilo para o POP-UP DE LOADING CENTRALIZADO
 st.markdown("""
     <style>
     .loading-overlay {
@@ -57,43 +54,70 @@ fab = c_fab.selectbox("Fabricante:", sorted(DATABASE.keys()))
 modelo = c_mod.selectbox("Modelo:", sorted(DATABASE[fab].keys()))
 
 if "Personalizado" in modelo:
-    c_x, c_y, c_z = st.columns(3)
-    vol = {"x": c_x.number_input("Largura (X):", 220), "y": c_y.number_input("Fundo (Y):", 220), "z": c_z.number_input("Altura (Z):", 240)}
+    cx, cy, cz = st.columns(3)
+    vol = {"x": cx.number_input("Largura (X):", 220), "y": cy.number_input("Fundo (Y):", 220), "z": cz.number_input("Altura (Z):", 240)}
 else:
     vol = DATABASE[fab][modelo]
 
-# --- PASSO 2: UPLOAD E VISUALIZAÇÃO ---
+# --- PASSO 2: UPLOAD E ANÁLISE ---
 arquivo = st.file_uploader("2. Carregar arquivo STL", type=['stl'])
 pop_up = st.empty()
 
 if arquivo:
-    if 'mesh' not in st.session_state or st.session_state.get('file_id') != arquivo.name:
+    # Reinicia se o arquivo mudar
+    if 'file_id' not in st.session_state or st.session_state.file_id != arquivo.name:
+        st.session_state.file_id = arquivo.name
+        st.session_state.confirmado = False
         with pop_up.container():
-            st.markdown('<div class="loading-overlay"><div class="loading-box"><h1>📦 ANALISANDO GEOMETRIA...</h1></div></div>', unsafe_allow_html=True)
-            st.session_state.file_id = arquivo.name
+            st.markdown('<div class="loading-overlay"><div class="loading-box"><h1>📦 ANALISANDO...</h1></div></div>', unsafe_allow_html=True)
             st.session_state.mesh = trimesh.load(io.BytesIO(arquivo.read()), file_type='stl')
             st.session_state.d_orig = st.session_state.mesh.extents
-            st.session_state.confirmado = False
+            time.sleep(1)
             pop_up.empty()
 
-    d_orig = st.session_state.d_orig
-    
-    # --- VISUALIZAÇÃO 3D (PyVista/Simple HTML) ---
-    st.subheader("👁️ Visualização do Modelo")
-    st.info("Visualização 3D gerada: Use o mouse para rotacionar.")
-    # Aqui simulamos o visualizador para manter o código leve no Streamlit Cloud
-    st.write(f"📊 **Volume:** {st.session_state.mesh.volume/1000:.1f} cm³ | **Complexidade:** {len(st.session_state.mesh.faces)} faces")
+    if 'mesh' in st.session_state:
+        d_orig = st.session_state.d_orig
+        st.subheader("📏 Medidas Originais")
+        st.write(f"Largura: {d_orig[0]:.1f}mm | Fundo: {d_orig[1]:.1f}mm | **Altura: {d_orig[2]:.1f}mm**")
+        st.write(f"📊 Volume: {st.session_state.mesh.volume/1000:.1f} cm³")
 
-    # --- PASSO 3: AJUSTE PELA ALTURA (Z) ---
-    st.write("---")
-    st.subheader("🎯 3. Ajuste de Tamanho (Base: Altura)")
-    alt_orig = d_orig[2]
-    alt_alvo = st.number_input("Defina a ALTURA final desejada (Z em mm):", value=float(alt_orig), step=5.0)
+        # --- PASSO 3: ESCALA PELA ALTURA ---
+        st.write("---")
+        st.subheader("🎯 3. Ajuste de Tamanho (Base: Altura)")
+        alt_alvo = st.number_input("Defina a ALTURA final (Z em mm):", value=float(d_orig[2]), step=10.0)
 
-    if st.button("✅ Confirmar Proporções"):
-        st.session_state.confirmado = True
-        st.toast("Medidas baseadas na altura calculadas!")
+        if st.button("✅ Confirmar Medidas"):
+            st.session_state.confirmado = True
 
-    if st.session_state.get('confirmado'):
-        fator = alt_alvo / alt_orig
-        d_novo
+        if st.session_state.get('confirmado'):
+            fator = alt_alvo / d_orig[2]
+            d_novo = d_orig * fator
+            st.info(f"💡 Resultado: {d_novo[0]:.1f}mm (X) x {d_novo[1]:.1f}mm (Y) x **{d_novo[2]:.1f}mm (Z)**")
+
+            # Filtro de cortes
+            opcoes = [p for p in [1, 2, 4, 6, 8, 12] if (d_novo[0]/(p**0.5)) <= vol['x']]
+            
+            if not opcoes:
+                st.error("❌ A peça não cabe. Reduza a altura.")
+            else:
+                qtd_partes = st.selectbox("Dividir em:", opcoes)
+
+                # --- PASSO 4: GERAÇÃO ---
+                if st.button("🚀 GERAR G-CODE"):
+                    with pop_up.container():
+                        st.markdown('<div class="loading-overlay"><div class="loading-box"><h1>🤖 FATIANDO...</h1></div></div>', unsafe_allow_html=True)
+                        try:
+                            m_final = st.session_state.mesh.copy().apply_scale(fator)
+                            m_final.export("temp.stl")
+                            subprocess.run(["slic3r", "temp.stl", "--output", "f.gcode"], check=True)
+                            
+                            buf = io.BytesIO()
+                            with zipfile.ZipFile(buf, "w") as zf:
+                                zf.write("f.gcode")
+                            
+                            pop_up.empty()
+                            st.balloons()
+                            st.download_button("📥 BAIXAR", buf.getvalue(), "431_Pronto.zip")
+                        except Exception as e:
+                            pop_up.empty()
+                            st.error(f"Erro: {e}")
