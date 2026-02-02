@@ -88,4 +88,4 @@ if arquivo:
             except:
                 st.error("Ocorreu um erro ao fatiar. Verifique se o arquivo 'packages.txt' contém a palavra 'slic3r'.")
 else:
-    st.info("Aguardando você carregar o arquivo STL acima.")
+    st.info("Aguardando você carregar o arquivo STL aqui em cima.")
